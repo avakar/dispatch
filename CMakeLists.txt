@@ -11,6 +11,6 @@ add_library(avakar.dispatch INTERFACE
 add_library(avakar::dispatch ALIAS avakar.dispatch)
 
 target_include_directories(avakar.dispatch INTERFACE include)
-target_compile_features(avakar.dispatch INTERFACE cxx_std_17)
+target_compile_features(avakar.dispatch INTERFACE cxx_std_20)
 
 add_mutest(test/test.cpp avakar::dispatch)

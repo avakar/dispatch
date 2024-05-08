@@ -1,4 +1,5 @@
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <type_traits>
 #include <utility>
@@ -6,35 +7,65 @@
 namespace avakar {
 
 template <typename F, std::size_t... in>
-auto _dispatch_result(F &&, std::index_sequence<in...>)
-	-> std::common_type_t<std::invoke_result_t<F, std::integral_constant<std::size_t, in>>...>;
-
-template <typename R, typename F, std::size_t... in>
 constexpr auto _build_dispatch_tbl(std::index_sequence<in...>)
 {
+	using R = std::invoke_result_t<F, std::integral_constant<std::size_t, 0>>;
+	constexpr bool is_noexcept = (std::is_nothrow_invocable_v<F, std::integral_constant<std::size_t, in>> && ...);
+
 	using FF = std::remove_cvref_t<F>;
-	return std::array<R (*)(FF * f), sizeof...(in)>{
-		[](FF * f) -> R { return ((F &&)*f)(std::integral_constant<std::size_t, in>{}); }...
+	return std::array<R (*)(FF * f) noexcept(is_noexcept), sizeof...(in)>{
+		[](FF * f) noexcept(is_noexcept) -> R { return ((F &&)*f)(std::integral_constant<std::size_t, in>{}); }...
 	};
 }
 
-template <std::size_t N, typename R, typename F>
-inline constexpr auto _dispatch_tbl = _build_dispatch_tbl<R, F>(std::make_index_sequence<N>{});
+template <std::size_t N, typename F>
+inline constexpr auto _dispatch_tbl = _build_dispatch_tbl<F>(std::make_index_sequence<N>{});
+
+template <typename F, std::size_t... in>
+constexpr bool _is_dispatchable(std::index_sequence<in...>) noexcept
+{
+	if constexpr ((std::is_invocable_v<F, std::integral_constant<std::size_t, in>> && ...))
+	{
+		using R0 = std::invoke_result_t<F, std::integral_constant<std::size_t, 0>>;
+		return (std::is_same_v<R0, std::invoke_result_t<F, std::integral_constant<std::size_t, in>>> && ...);
+	}
+	else
+	{
+		return false;
+	}
+}
+
+template <typename F, std::size_t... in>
+constexpr bool _is_nothrow_dispatchable(std::index_sequence<in...> seq) noexcept
+{
+	return _is_dispatchable<F>(seq)
+		&& (std::is_nothrow_invocable_v<F, std::integral_constant<std::size_t, in>> && ...);
+}
+
+
 
 template <std::size_t N, typename F>
-auto dispatch(std::size_t i, F && f)
-	-> decltype(_dispatch_result((F &&)f, std::make_index_sequence<N>{}))
+inline constexpr bool is_dispatchable_v = _is_dispatchable<F>(std::make_index_sequence<N>{});
+
+template <std::size_t N, typename F>
+inline constexpr bool is_nothrow_dispatchable_v = _is_nothrow_dispatchable<F>(std::make_index_sequence<N>{});
+
+template <std::size_t N, typename F>
+requires (N >= 1) && is_dispatchable_v<N, F>
+decltype(auto) dispatch(std::size_t i, F && f)
+	noexcept(is_nothrow_dispatchable_v<N, F>)
 {
-	if constexpr (N >= 0x100)
+	assert(i < N);
+
+	if constexpr (N > 0x100)
 	{
-		using R = decltype(_dispatch_result((F &&)f, std::make_index_sequence<N>{}));
-		return _dispatch_tbl<N, R, F>[i](&f);
+		return _dispatch_tbl<N, F>[i](&f);
 	}
 	else
 	{
 		switch (i)
 		{
-		#define X(i) case i: if constexpr (N > i) { return ((F &&)f)(std::integral_constant<std::size_t, i>{}); }
+		#define X(i) case i: if constexpr (i < N) { return ((F &&)f)(std::integral_constant<std::size_t, i>{}); }
 			X(0x00) X(0x01) X(0x02) X(0x03) X(0x04) X(0x05) X(0x06) X(0x07) X(0x08) X(0x09) X(0x0a) X(0x0b) X(0x0c) X(0x0d) X(0x0e) X(0x0f)
 			X(0x10) X(0x11) X(0x12) X(0x13) X(0x14) X(0x15) X(0x16) X(0x17) X(0x18) X(0x19) X(0x1a) X(0x1b) X(0x1c) X(0x1d) X(0x1e) X(0x1f)
 			X(0x20) X(0x21) X(0x22) X(0x23) X(0x24) X(0x25) X(0x26) X(0x27) X(0x28) X(0x29) X(0x2a) X(0x2b) X(0x2c) X(0x2d) X(0x2e) X(0x2f)
